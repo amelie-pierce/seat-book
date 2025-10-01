@@ -1,32 +1,49 @@
-'use client';
-import { useState } from 'react';
-import { Container, Box, Typography, Chip, Button, CircularProgress, Alert, Snackbar } from '@mui/material';
-import { Person as PersonIcon, ExitToApp as LogoutIcon } from '@mui/icons-material';
-import SeatingLayout from '../components/SeatingLayout';
-import ReservationForm from '../components/ReservationForm';
-import UserAuthModal from '../components/UserAuthModal';
-import { useUserSession } from '../hooks/useUserSession';
-import { SEATING_CONFIG, generateAllSeats } from '../config/seatingConfig';
-import { bookingService } from '../services/bookingService';
-import { BookingRecord } from '../utils/bookingStorage';
-import { useEffect } from 'react';
+"use client";
+import { useCallback, useState } from "react";
+import {
+  Container,
+  Box,
+  Typography,
+  Chip,
+  Button,
+  CircularProgress,
+  Alert,
+  Snackbar,
+} from "@mui/material";
+import {
+  Person as PersonIcon,
+  ExitToApp as LogoutIcon,
+} from "@mui/icons-material";
+import SeatingLayout from "../components/SeatingLayout";
+import ReservationForm from "../components/ReservationForm";
+import UserAuthModal from "../components/UserAuthModal";
+import { useUserSession } from "../hooks/useUserSession";
+import { SEATING_CONFIG, generateAllSeats } from "../config/seatingConfig";
+import { bookingService } from "../services/bookingService";
+import { BookingRecord } from "../utils/bookingStorage";
+import { useEffect } from "react";
 
 export default function Home() {
+  const todayDate = new Date().toISOString().split("T")[0];
+
   const [selectedSeat, setSelectedSeat] = useState<string | null>(null);
   const [reservedSeats, setReservedSeats] = useState<string[]>([]);
   const [pendingSeatId, setPendingSeatId] = useState<string | null>(null);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [userBookings, setUserBookings] = useState<BookingRecord[]>([]);
   const [isLoadingBookings, setIsLoadingBookings] = useState(true);
-  
-  const { 
-    currentUser, 
-    setUser, 
-    clearUserSession, 
-    isAuthenticated, 
+  const [selectedDate, setSelectedDate] = useState<string | null>(todayDate);
+  const [availableSeatsForDate, setAvailableSeatsForDate] = useState<string[]>(
+    []
+  );
+  const {
+    currentUser,
+    setUser,
+    clearUserSession,
+    isAuthenticated,
     isLoading,
     shouldShowAuthModal,
-    setShouldShowAuthModal 
+    setShouldShowAuthModal,
   } = useUserSession();
 
   // Initialize database and load user data when app opens
@@ -34,20 +51,19 @@ export default function Home() {
     const initializeApp = async () => {
       try {
         setIsLoadingBookings(true);
-        console.log('🚀 App starting - initializing booking system...');
-        
+        console.log("🚀 App starting - initializing booking system...");
+
         // Initialize the CSV database
         await bookingService.initializeDatabase();
-        
+
         // Load reserved seats for today
         const reserved = await bookingService.getReservedSeats();
         setReservedSeats(reserved);
-        
+
         console.log(`🎯 Loaded ${reserved.length} reserved seats for today`);
-        
       } catch (error) {
-        console.error('❌ Error initializing app:', error);
-        setBookingError('Failed to load booking data');
+        console.error("❌ Error initializing app:", error);
+        setBookingError("Failed to load booking data");
       } finally {
         setIsLoadingBookings(false);
       }
@@ -64,13 +80,17 @@ export default function Home() {
           console.log(`👤 Loading data for user: ${currentUser}`);
           const userData = await bookingService.loadUserData(currentUser);
           setUserBookings(userData.userBookings);
-          
-          console.log(`📊 User ${currentUser} has ${userData.totalBookings} total bookings`);
+
+          console.log(
+            `📊 User ${currentUser} has ${userData.totalBookings} total bookings`
+          );
           if (userData.todayBooking) {
-            console.log(`📅 Today's booking: ${userData.todayBooking.seatId} (${userData.todayBooking.timeSlot})`);
+            console.log(
+              `📅 Today's booking: ${userData.todayBooking.seatId} (${userData.todayBooking.timeSlot})`
+            );
           }
         } catch (error) {
-          console.error('❌ Error loading user data:', error);
+          console.error("❌ Error loading user data:", error);
         }
       } else {
         setUserBookings([]);
@@ -80,8 +100,19 @@ export default function Home() {
     loadUserData();
   }, [currentUser, isAuthenticated]);
 
-  // Generate available seats based on configuration and reserved seats
-  const availableSeats = generateAllSeats(SEATING_CONFIG).filter(seat => !reservedSeats.includes(seat));
+  useEffect(() => {
+    // Only run if selectedDate is set
+    if (selectedDate) {
+      handleDateClick(selectedDate);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Always calculate availableSeatsForDate based on reservedSeats for the selected date
+  // This ensures that if any user books a seat for a date, it is unavailable for all users for that date
+  const availableSeats = generateAllSeats(SEATING_CONFIG).filter(
+    (seat) => !reservedSeats.includes(seat)
+  );
 
   const handleSeatClick = (seatId: string) => {
     if (availableSeats.includes(seatId)) {
@@ -91,7 +122,7 @@ export default function Home() {
         setShouldShowAuthModal(true);
         return;
       }
-      
+
       // If authenticated, proceed with seat selection
       setSelectedSeat(seatId === selectedSeat ? null : seatId);
     }
@@ -99,7 +130,7 @@ export default function Home() {
 
   const handleUserAuthenticated = (userId: string) => {
     setUser(userId);
-    
+
     // If there was a pending seat selection, complete it now
     if (pendingSeatId) {
       setSelectedSeat(pendingSeatId);
@@ -117,33 +148,43 @@ export default function Home() {
     setSelectedSeat(null);
   };
 
-  const handleReservation = async (data: { timeSlot: 'AM' | 'PM' | 'FULL_DAY' }) => {
-    if (selectedSeat && currentUser) {
+  const handleReservation = async (date: string) => {
+    if (selectedSeat && currentUser && date) {
       try {
         setBookingError(null);
-        console.log(`🎫 Creating booking: ${currentUser} -> ${selectedSeat} (${data.timeSlot})`);
-        
-        const result = await bookingService.createBooking(currentUser, selectedSeat, data.timeSlot);
-        
+        console.log(
+          `🎫 Creating booking: ${currentUser} -> ${selectedSeat} on ${date}`
+        );
+
+        const result = await bookingService.createBooking(
+          currentUser,
+          selectedSeat,
+          'FULL_DAY',
+          date
+        );
+
         if (result.success) {
-          console.log('✅ Booking created successfully');
-          
-          // Reload reserved seats from database
-          const reserved = await bookingService.getReservedSeats();
+          console.log("✅ Booking created successfully");
+
+          // Reload reserved seats from database for the selected date
+          const reserved = await bookingService.getReservedSeats(date);
           setReservedSeats(reserved);
-          
+
           // Reload user bookings
           const userData = await bookingService.loadUserData(currentUser);
           setUserBookings(userData.userBookings);
-          
+
           setSelectedSeat(null);
+
+          // Rerun handleDateClick to update availableSeatsForDate and rerender SeatingLayout
+          handleDateClick(date);
         } else {
-          console.log('❌ Booking failed:', result.error);
-          setBookingError(result.error || 'Failed to create booking');
+          console.log("❌ Booking failed:", result.error);
+          setBookingError(result.error || "Failed to create booking");
         }
       } catch (error) {
-        console.error('❌ Error creating booking:', error);
-        setBookingError('Failed to create booking. Please try again.');
+        console.error("❌ Error creating booking:", error);
+        setBookingError("Failed to create booking. Please try again.");
       }
     }
   };
@@ -152,10 +193,36 @@ export default function Home() {
     setSelectedSeat(null);
   };
 
+  const handleDateClick = useCallback(async (dateStr: string) => {
+    setSelectedDate(dateStr);
+    setSelectedSeat(null); // Clear selected seat when changing date
+
+    // Fetch reserved seats for the selected date
+    try {
+      const reserved = await bookingService.getReservedSeats(dateStr);
+      // Generate available seats for that date
+      const seats = generateAllSeats(SEATING_CONFIG).filter(
+        (seat) => !reserved.includes(seat)
+      );
+      setAvailableSeatsForDate(seats);
+    } catch (error) {
+      setAvailableSeatsForDate([]);
+      setBookingError("Failed to load seats for selected date");
+    }
+  }, []);
+
   // Show loading state while checking authentication or loading bookings
   if (isLoading || isLoadingBookings) {
     return (
-      <Container maxWidth="xl" sx={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <Container
+        maxWidth="xl"
+        sx={{
+          height: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
         <Box textAlign="center">
           <CircularProgress size={40} />
           <Typography variant="body1" sx={{ mt: 2 }}>
@@ -167,15 +234,22 @@ export default function Home() {
   }
 
   return (
-    <Container maxWidth="xl" sx={{ height: '100vh', py: 2 }}>
+    <Container maxWidth="xl" sx={{ height: "100vh", py: 2 }}>
       {/* User Session Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          mb: 2,
+        }}
+      >
         <Typography variant="h4" component="h1" color="primary">
           Seat Booking
         </Typography>
-        
+
         {isAuthenticated ? (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
             <Chip
               icon={<PersonIcon />}
               label={`${currentUser} (${userBookings.length} bookings)`}
@@ -201,53 +275,81 @@ export default function Home() {
         )}
       </Box>
 
-      <Box 
-        sx={{ 
-          display: 'flex', 
-          height: 'calc(100% - 80px)',
-          flexDirection: { xs: 'column', md: 'row' },
-          gap: 2
+      <Box
+        sx={{
+          display: "flex",
+          height: "calc(100% - 80px)",
+          flexDirection: { xs: "column", md: "row" },
+          gap: 2,
         }}
       >
         {/* Left Section - Seating Layout */}
-        <Box 
-          sx={{ 
-            flex: { xs: 1, md: '0 0 60%' },
-            backgroundColor: '#f8f9fa', 
+        <Box
+          sx={{
+            flex: { xs: 1, md: "0 0 60%" },
+            backgroundColor: "#f8f9fa",
             borderRadius: 2,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            minHeight: { xs: '400px', md: 'auto' },
-            border: '1px solid #e0e0e0'
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: { xs: "400px", md: "auto" },
+            border: "1px solid #e0e0e0",
           }}
         >
-          
-          <SeatingLayout 
+          <SeatingLayout
             onSeatClick={handleSeatClick}
-            availableSeats={availableSeats}
+            availableSeats={availableSeatsForDate}
             selectedSeat={selectedSeat || undefined}
             seatingConfig={SEATING_CONFIG}
+            selectedDate={selectedDate || undefined}
+            onDateClick={handleDateClick}
           />
         </Box>
 
         {/* Right Section - Reservation Form */}
-        <Box 
-          sx={{ 
-            flex: { xs: 1, md: '0 0 40%' },
+        <Box
+          sx={{
+            flex: { xs: 1, md: "0 0 40%" },
             p: 4,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
-          <ReservationForm 
+          <ReservationForm
+            selectedDate={selectedDate || undefined}
+            onDateClick={handleDateClick}
             selectedSeat={selectedSeat || undefined}
             onSubmit={handleReservation}
             onClear={handleClearBooking}
             currentUser={currentUser || undefined}
             isAuthenticated={isAuthenticated}
+              userBookings={userBookings.filter(b => b.status === 'ACTIVE').map(b => ({ date: b.date, seatId: b.seatId }))}
+            onBookingChange={async () => {
+              if (currentUser) {
+                // Refresh reserved seats for the selected date
+                const reserved = await bookingService.getReservedSeats(selectedDate || todayDate);
+                setReservedSeats(reserved);
+                // Refresh user bookings
+                const userData = await bookingService.loadUserData(currentUser);
+                setUserBookings(userData.userBookings);
+                // Refresh available seats for the selected date
+                if (selectedDate) {
+                  const seats = generateAllSeats(SEATING_CONFIG).filter(
+                    (seat) => !reserved.includes(seat)
+                  );
+                  setAvailableSeatsForDate(seats);
+                  // If the selected seat was just deleted, clear it
+                  const stillBooked = userData.userBookings.find(
+                    b => b.date === selectedDate && b.seatId === selectedSeat
+                  );
+                  if (!stillBooked) {
+                    setSelectedSeat(null);
+                  }
+                }
+              }
+            }}
           />
         </Box>
       </Box>

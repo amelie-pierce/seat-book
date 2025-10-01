@@ -1,47 +1,46 @@
-import { useState } from 'react';
-import { 
-  Paper, 
-  Typography, 
-  Button, 
+import { useState } from "react";
+import { bookingService } from "../services/bookingService";
+import {
+  Paper,
+  Typography,
+  Button,
   Box,
   Alert,
   Snackbar,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
   Chip,
-  IconButton
-} from '@mui/material';
-import { Delete as DeleteIcon } from '@mui/icons-material';
-
-interface ReservationFormData {
-  timeSlot: 'AM' | 'PM' | 'FULL_DAY';
-}
+  IconButton,
+} from "@mui/material";
+import { Delete as DeleteIcon } from "@mui/icons-material";
 
 interface ReservationFormProps {
   selectedSeat?: string;
-  onSubmit?: (data: ReservationFormData) => void;
-  onClear?: () => void;
+  onSubmit?: (date: string) => void;
   currentUser?: string;
   isAuthenticated?: boolean;
+  onDateClick?: (date: string) => void;
+  selectedDate?: string;
+  userBookings?: { date: string; seatId: string }[];
+  onBookingChange?: () => void;
+  onClear?: () => void;
 }
 
-export default function ReservationForm({ 
-  selectedSeat, 
-  onSubmit, 
-  onClear,
-  currentUser, 
-  isAuthenticated = false 
+export default function ReservationForm({
+  // ...existing code...
+
+  selectedSeat,
+  onSubmit,
+  currentUser,
+  isAuthenticated = false,
+  onDateClick,
+  selectedDate,
+  userBookings = [],
+  onBookingChange,
+  onClear
 }: ReservationFormProps) {
-  const [formData, setFormData] = useState<ReservationFormData>({
-    timeSlot: 'AM'
-  });
   const [showSuccess, setShowSuccess] = useState(false);
 
   // Convert seat ID to readable format
   const formatSeatDisplay = (seatId: string) => {
-    // Seat ID is already in format like "A1", "B2", etc.
     if (seatId.length >= 2) {
       const tableLetter = seatId.charAt(0);
       const seatNumber = seatId.slice(1);
@@ -50,131 +49,169 @@ export default function ReservationForm({
     return seatId;
   };
 
-  const handleTimeSlotChange = (event: { target: { value: 'AM' | 'PM' | 'FULL_DAY' } }) => {
-    setFormData(prev => ({
-      ...prev,
-      timeSlot: event.target.value
-    }));
-  };
-
-  const handleClear = () => {
-    setFormData({
-      timeSlot: 'AM'
-    });
-    if (onClear) {
-      onClear();
-    }
-  };
-
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (onSubmit) {
-      onSubmit(formData);
+    if (onSubmit && selectedDate) {
+      onSubmit(selectedDate);
     }
     setShowSuccess(true);
-    // Reset form
-    setFormData({
-      timeSlot: 'AM'
-    });
   };
 
-  const isFormValid = isAuthenticated && selectedSeat;
+    const isFormValid = isAuthenticated && selectedSeat;
 
-  return (
-    <>
-      <Paper 
-        elevation={3}
-        sx={{ 
-          p: 4, 
-          width: '100%', 
-          maxWidth: 400,
-          borderRadius: 2
-        }}
-      >
-        <Typography variant="h5" component="h2" mb={3} textAlign="center">
-          Reserve Your Seat
-        </Typography>
-        
-        {selectedSeat && (
-          <Alert severity="info" sx={{ mb: 2 }}>
-            Selected Seat: {selectedSeat}
-          </Alert>
-        )}
-        
-        {currentUser && (
-          <Alert severity="success" sx={{ mb: 2 }}>
-            Booking as: {currentUser}
-          </Alert>
-        )}
-        
-        {!isAuthenticated && (
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            Please select a seat and authenticate to continue
-          </Alert>
-        )}
-        
-        {/* Date, Seat, Time Slot, and Clear Button Row */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-          <Chip 
-            label={new Date().toLocaleDateString()} 
-            color="primary" 
-            variant="outlined"
-            sx={{ fontSize: '0.875rem' }}
-          />
+    return (
+      <>
+        <Paper
+          elevation={3}
+          sx={{
+            p: 4,
+            width: "100%",
+            maxWidth: 400,
+            borderRadius: 2,
+          }}
+        >
+          <Typography variant="h5" component="h2" mb={3} textAlign="center">
+            Reserve Your Seat
+          </Typography>
+
           {selectedSeat && (
-            <Chip 
-              label={formatSeatDisplay(selectedSeat)} 
-              color="secondary" 
-              variant="filled"
-              sx={{ fontSize: '0.875rem' }}
-            />
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Selected Seat: {selectedSeat}
+            </Alert>
           )}
-          <FormControl size="small" sx={{ minWidth: 100 }}>
-            <InputLabel>Time</InputLabel>
-            <Select
-              value={formData.timeSlot}
-              label="Time"
-              onChange={handleTimeSlotChange}
-            >
-              <MenuItem value="AM">AM</MenuItem>
-              <MenuItem value="PM">PM</MenuItem>
-              <MenuItem value="FULL_DAY">Full Day</MenuItem>
-            </Select>
-          </FormControl>
-          <IconButton 
-            onClick={handleClear}
-            color="error"
-            size="small"
-            title="Clear booking data"
-          >
-            <DeleteIcon />
-          </IconButton>
-        </Box>
-        
-        <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <Button 
-            type="submit"
-            variant="contained" 
-            size="large"
-            sx={{ mt: 2 }}
-            disabled={!isFormValid}
-          >
-            {!isAuthenticated ? 'Please Authenticate First' : 
-             !selectedSeat ? 'Select a Seat' : 
-             'Reserve Seat'}
-          </Button>
-        </Box>
-      </Paper>
 
-      <Snackbar
-        open={showSuccess}
-        autoHideDuration={4000}
-        onClose={() => setShowSuccess(false)}
-      >
-        <Alert severity="success" onClose={() => setShowSuccess(false)}>
-          Reservation submitted successfully!
-        </Alert>
-      </Snackbar>
-    </>
-  );
+          {currentUser && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              Booking as: {currentUser}
+            </Alert>
+          )}
+
+          {/* Date, Seat, and Delete Button Row */}
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1, mb: 2 }}>
+            {/* Loop through dates from today to next week's Friday (excluding Sat/Sun) */}
+            {(() => {
+              const today = new Date();
+              const dates: Date[] = [];
+              // Find next week's Friday
+              const currentDay = today.getDay();
+              let daysUntilFriday = (5 - currentDay + 7) % 7;
+              if (daysUntilFriday === 0) daysUntilFriday = 7;
+              daysUntilFriday += 7;
+              const nextWeekFriday = new Date(today);
+              nextWeekFriday.setDate(today.getDate() + daysUntilFriday);
+              const loopDate = new Date(today);
+              while (loopDate <= nextWeekFriday) {
+                const dayOfWeek = loopDate.getDay();
+                if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                  dates.push(new Date(loopDate));
+                }
+                loopDate.setDate(loopDate.getDate() + 1);
+              }
+              return dates.map((date, idx) => {
+                const dateStr = date.toISOString().split("T")[0];
+                const isSelected = selectedDate === dateStr;
+                const booking = userBookings.find(b => b.date === dateStr);
+                let seatLabel;
+                if (isSelected) {
+                  if (booking) {
+                    seatLabel = formatSeatDisplay(booking.seatId);
+                  } else if (selectedSeat) {
+                    seatLabel = formatSeatDisplay(selectedSeat);
+                  } else {
+                    seatLabel = "not booked yet";
+                  }
+                } else if (booking) {
+                  seatLabel = formatSeatDisplay(booking.seatId);
+                } else {
+                  seatLabel = "not booked yet";
+                }
+                return (
+                  <Box
+                    key={idx}
+                    sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                  >
+                    <Chip
+                      label={date.toLocaleDateString()}
+                      color="primary"
+                      variant="outlined"
+                      sx={{
+                        fontSize: "0.875rem",
+                        flex: 1,
+                        fontWeight: isSelected ? "bold" : "normal",
+                        boxShadow: isSelected ? 2 : 0,
+                      }}
+                      onClick={
+                        onDateClick
+                          ? () => onDateClick(dateStr)
+                          : undefined
+                      }
+                    />
+                    <Chip
+                      label={seatLabel}
+                      color={booking ? "secondary" : "default"}
+                      variant={booking ? "filled" : "outlined"}
+                      sx={{ fontSize: "0.875rem" }}
+                    />
+                    <IconButton
+                      color="error"
+                      size="small"
+                      title="Remove this date"
+                      onClick={async () => {
+                        if (!currentUser) return;
+                        if (!booking) return;
+                        try {
+                          console.log('12321 ')
+                          const allUserBookings = await bookingService.getUserBookings(currentUser);
+                          const fullBooking = allUserBookings.find(b => b.date === dateStr && b.seatId === booking.seatId && b.status === 'ACTIVE');
+                          if (!fullBooking) return;
+                          await bookingService.cancelBooking(fullBooking.id, currentUser);
+                          if (onBookingChange) await onBookingChange();
+                        } catch (err) {
+                          console.error('Failed to cancel booking:', err);
+                        }
+                      }}
+                      disabled={!booking}
+                    >
+                      <DeleteIcon />
+                    </IconButton>
+                  </Box>
+                );
+              });
+            })()}
+          </Box>
+
+          <Box
+            component="form"
+            onSubmit={handleSubmit}
+            sx={{ display: "flex", flexDirection: "column", gap: 2 }}
+          >
+            <Button
+              type="submit"
+              variant="contained"
+              size="large"
+              sx={{ mt: 2 }}
+              disabled={!isFormValid}
+            >
+              {!isAuthenticated
+                ? "Please Authenticate First"
+                : !selectedSeat
+                ? "Select a Seat"
+                : "Reserve Seat"}
+            </Button>
+          </Box>
+        </Paper>
+
+        <Snackbar
+          open={showSuccess}
+          autoHideDuration={4000}
+          onClose={() => setShowSuccess(false)}
+        >
+          <Alert severity="success" onClose={() => setShowSuccess(false)}>
+            Reservation submitted successfully!
+          </Alert>
+
+        </Snackbar>
+      </>
+    );
 }
+
