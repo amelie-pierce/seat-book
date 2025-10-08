@@ -63,6 +63,13 @@ export default function Home() {
         console.log(`🎯 Loaded ${reserved.length} reserved seats for today`);
       } catch (error) {
         console.error("❌ Error initializing app:", error);
+        
+        // Check if this is a CSV loading error that should redirect to 404
+        if (error instanceof Error && error.message.includes('Required CSV files could not be loaded')) {
+          // The CSV service will handle the redirect
+          return;
+        }
+        
         setBookingError("Failed to load booking data");
       } finally {
         setIsLoadingBookings(false);
@@ -78,8 +85,24 @@ export default function Home() {
       if (currentUser && isAuthenticated) {
         try {
           console.log(`👤 Loading data for user: ${currentUser}`);
+          
+          // Refresh CSV data to get latest bookings
+          await bookingService.refreshFromCsv();
+          
           const userData = await bookingService.loadUserData(currentUser);
           setUserBookings(userData.userBookings);
+
+          // Refresh reserved seats for current date
+          if (selectedDate) {
+            const reserved = await bookingService.getReservedSeats(selectedDate);
+            setReservedSeats(reserved);
+            
+            // Update available seats for the current date
+            const seats = generateAllSeats(SEATING_CONFIG).filter(
+              (seat) => !reserved.includes(seat)
+            );
+            setAvailableSeatsForDate(seats);
+          }
 
           console.log(
             `📊 User ${currentUser} has ${userData.totalBookings} total bookings`
@@ -93,12 +116,14 @@ export default function Home() {
           console.error("❌ Error loading user data:", error);
         }
       } else {
+        // Clear user-specific data when user logs out
         setUserBookings([]);
+        setSelectedSeat(null);
       }
     };
 
     loadUserData();
-  }, [currentUser, isAuthenticated]);
+  }, [currentUser, isAuthenticated, selectedDate]);
 
   useEffect(() => {
     // Only run if selectedDate is set
@@ -108,14 +133,9 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Always calculate availableSeatsForDate based on reservedSeats for the selected date
-  // This ensures that if any user books a seat for a date, it is unavailable for all users for that date
-  const availableSeats = generateAllSeats(SEATING_CONFIG).filter(
-    (seat) => !reservedSeats.includes(seat)
-  );
-
   const handleSeatClick = (seatId: string) => {
-    if (availableSeats.includes(seatId)) {
+    // Use availableSeatsForDate which is properly updated for the selected date
+    if (availableSeatsForDate.includes(seatId)) {
       // If user is not authenticated, show auth modal first
       if (!isAuthenticated) {
         setPendingSeatId(seatId);
@@ -128,13 +148,31 @@ export default function Home() {
     }
   };
 
-  const handleUserAuthenticated = (userId: string) => {
+  const handleUserAuthenticated = async (userId: string) => {
     setUser(userId);
 
     // If there was a pending seat selection, complete it now
     if (pendingSeatId) {
       setSelectedSeat(pendingSeatId);
       setPendingSeatId(null);
+    }
+
+    // Refresh booking data to ensure new user sees updated seat availability
+    try {
+      await bookingService.refreshFromCsv();
+      // Reload reserved seats for current date
+      if (selectedDate) {
+        const reserved = await bookingService.getReservedSeats(selectedDate);
+        setReservedSeats(reserved);
+        
+        // Update available seats for the current date
+        const seats = generateAllSeats(SEATING_CONFIG).filter(
+          (seat) => !reserved.includes(seat)
+        );
+        setAvailableSeatsForDate(seats);
+      }
+    } catch (error) {
+      console.error("Error refreshing data after login:", error);
     }
   };
 
@@ -143,9 +181,28 @@ export default function Home() {
     setPendingSeatId(null);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     clearUserSession();
     setSelectedSeat(null);
+    setUserBookings([]);
+    
+    // Refresh booking data to ensure new user sees updated seat availability
+    try {
+      await bookingService.refreshFromCsv();
+      // Reload reserved seats for current date
+      if (selectedDate) {
+        const reserved = await bookingService.getReservedSeats(selectedDate);
+        setReservedSeats(reserved);
+        
+        // Update available seats for the current date
+        const seats = generateAllSeats(SEATING_CONFIG).filter(
+          (seat) => !reserved.includes(seat)
+        );
+        setAvailableSeatsForDate(seats);
+      }
+    } catch (error) {
+      console.error("Error refreshing data after logout:", error);
+    }
   };
 
   const handleReservation = async (date: string) => {
@@ -205,7 +262,8 @@ export default function Home() {
         (seat) => !reserved.includes(seat)
       );
       setAvailableSeatsForDate(seats);
-    } catch (error) {
+    } catch (err) {
+      console.error("Error loading seats for date:", err);
       setAvailableSeatsForDate([]);
       setBookingError("Failed to load seats for selected date");
     }

@@ -1,4 +1,6 @@
-import { Box, Chip } from '@mui/material';
+import { Box, Chip, IconButton, Tooltip } from '@mui/material';
+import { ZoomIn, ZoomOut, CenterFocusStrong } from '@mui/icons-material';
+import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import Table from './Table';
 import { SeatingConfig } from '../config/seatingConfig';
 
@@ -70,9 +72,10 @@ export default function SeatingLayout({ onSeatClick, availableSeats, selectedSea
       flexDirection: 'column', 
       gap: 0,
       alignItems: 'center',
-      p: 2
+      height: '100%',
+      overflow: 'auto'
     }}>
-      {/* Date header chips - horizontally scrollable and spaced above layout */}
+      {/* Date header chips - horizontally scrollable and sticky at top */}
       <Box
         sx={{
           width: '100%',
@@ -80,17 +83,20 @@ export default function SeatingLayout({ onSeatClick, availableSeats, selectedSea
           whiteSpace: 'nowrap',
           display: 'block',
           mb: 4, // more margin below header
-          pb: 1,
-          pt: 1,
+          pb: 2,
+          pt: 2,
+          px: 2,
           background: '#fff',
-          borderRadius: 2,
-          boxShadow: 1,
-          position: 'relative',
-          zIndex: 2,
-          maxWidth: 900,
+          borderRadius: '8px 8px 0 0',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+          position: 'sticky',
+          top: 0,
+          zIndex: 100,
+          maxWidth: '100%',
+          borderBottom: '1px solid #e0e0e0'
         }}
       >
-        <Box sx={{ display: 'inline-flex', gap: 1, px: 2 }}>
+        <Box sx={{ display: 'inline-flex', gap: 1, px: 1 }}>
           {dateChips.map((date) => {
             const dateStr = date.toISOString().split('T')[0];
             return (
@@ -113,22 +119,129 @@ export default function SeatingLayout({ onSeatClick, availableSeats, selectedSea
           })}
         </Box>
       </Box>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0, mt: 1 }}>
-        {tableRows.map((row) => (
-          <Box key={row.id} sx={{ display: 'flex', gap: 4, mb: 8 }}>
-            {row.tables.map((tableId, index) => (
-              <Table
-                key={tableId}
-                tableLetter={row.letters[index]}
-                onSeatClick={onSeatClick}
-                availableSeats={availableSeats}
-                selectedSeat={selectedSeat}
-                width={240}
-                height={80}
-              />
-            ))}
-          </Box>
-        ))}
+      {/* Zoomable tables section */}
+      <Box sx={{ 
+        flex: 1, 
+        width: '100%', 
+        overflow: 'hidden',
+        position: 'relative',
+        minHeight: 400
+      }}>
+        <TransformWrapper
+          initialScale={1}
+          minScale={0.5}
+          maxScale={3}
+          wheel={{
+            step: 0.1
+          }}
+          pinch={{
+            step: 0.1
+          }}
+          doubleClick={{
+            disabled: false,
+            mode: 'reset'
+          }}
+          panning={{
+            velocityDisabled: true
+          }}
+        >
+          {({ zoomIn, zoomOut, resetTransform }) => (
+            <>
+              {/* Zoom Control Buttons */}
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: 16,
+                  right: 16,
+                  zIndex: 10,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 1,
+                  backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                  borderRadius: 2,
+                  padding: 1,
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                }}
+              >
+                <Tooltip title="Zoom In" placement="left">
+                  <IconButton
+                    onClick={() => zoomIn(0.2)}
+                    size="small"
+                    sx={{
+                      backgroundColor: '#fff',
+                      '&:hover': {
+                        backgroundColor: '#f5f5f5',
+                      },
+                    }}
+                  >
+                    <ZoomIn fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Zoom Out" placement="left">
+                  <IconButton
+                    onClick={() => zoomOut(0.2)}
+                    size="small"
+                    sx={{
+                      backgroundColor: '#fff',
+                      '&:hover': {
+                        backgroundColor: '#f5f5f5',
+                      },
+                    }}
+                  >
+                    <ZoomOut fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Reset View (100%)" placement="left">
+                  <IconButton
+                    onClick={() => resetTransform()}
+                    size="small"
+                    sx={{
+                      backgroundColor: '#fff',
+                      '&:hover': {
+                        backgroundColor: '#f5f5f5',
+                      },
+                    }}
+                  >
+                    <CenterFocusStrong fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+
+              <TransformComponent
+                wrapperStyle={{
+                  width: '100%',
+                  height: '100%'
+                }}
+                contentStyle={{
+                  width: '100%',
+                  height: '100%',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'flex-start',
+                  paddingTop: '20px'
+                }}
+              >
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                  {tableRows.map((row) => (
+                    <Box key={row.id} sx={{ display: 'flex', gap: 4, mb: 8 }}>
+                      {row.tables.map((tableId, index) => (
+                        <Table
+                          key={tableId}
+                          tableLetter={row.letters[index]}
+                          onSeatClick={onSeatClick}
+                          availableSeats={availableSeats}
+                          selectedSeat={selectedSeat}
+                          width={240}
+                          height={80}
+                        />
+                      ))}
+                    </Box>
+                  ))}
+                </Box>
+              </TransformComponent>
+            </>
+          )}
+        </TransformWrapper>
       </Box>
     </Box>
   );

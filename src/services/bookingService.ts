@@ -1,19 +1,16 @@
 // Booking service for managing CSV-based booking data
-// This simulates an external database using CSV files stored in localStorage
-// In production, this would use actual file system or database operations
+// This service works with CSV files and only stores user ID in localStorage
+// All booking data is read from CSV files and kept in memory cache
 
 import { 
   BookingRecord, 
-  createCsvContent, 
-  parseCsvContent, 
   generateBookingId,
   hasUserBookingForDate,
   getUserBookingForDate,
   getReservedSeatsForDate,
   getTodayDate
 } from '../utils/bookingStorage';
-
-const STORAGE_KEY = 'seat_booking_csv_database';
+import { csvDataService } from './csvDataService';
 
 export class BookingService {
   private cachedBookings: BookingRecord[] = [];
@@ -25,9 +22,16 @@ export class BookingService {
     
     try {
       console.log('📊 Initializing booking database...');
-      this.cachedBookings = await this.loadAllBookingsFromCsv();
+      
+      // Initialize CSV data service
+      await csvDataService.initialize();
+      
+      // Load reservations from CSV data service and convert to bookings
+      const reservationBookings = await csvDataService.getBookingsFromReservations();
+      this.cachedBookings = reservationBookings;
+      
       this.isInitialized = true;
-      console.log(`📊 Database initialized with ${this.cachedBookings.length} records`);
+      console.log(`📊 Database initialized with ${this.cachedBookings.length} records from CSV files`);
     } catch (error) {
       console.error('❌ Error initializing database:', error);
       this.cachedBookings = [];
@@ -35,34 +39,13 @@ export class BookingService {
     }
   }
 
-  // Load all bookings from CSV file (simulates database read)
-  private async loadAllBookingsFromCsv(): Promise<BookingRecord[]> {
-    try {
-      const csvData = localStorage.getItem(STORAGE_KEY);
-      if (!csvData) {
-        console.log('📄 No existing CSV database found, creating new one');
-        return [];
-      }
-      
-      const bookings = parseCsvContent(csvData);
-      console.log(`📄 Loaded ${bookings.length} records from CSV database`);
-      return bookings;
-    } catch (error) {
-      console.error('❌ Error loading CSV database:', error);
-      return [];
-    }
-  }
-
-  // Save all bookings to CSV file (simulates database write)
-  private async saveToCsvDatabase(bookings: BookingRecord[]): Promise<void> {
-    try {
-      const csvData = createCsvContent(bookings);
-      localStorage.setItem(STORAGE_KEY, csvData);
-      console.log(`💾 Auto-saved ${bookings.length} records to CSV database`);
-    } catch (error) {
-      console.error('❌ Error auto-saving to CSV database:', error);
-      throw new Error('Database auto-save failed');
-    }
+  // Refresh data from CSV files
+  async refreshFromCsv(): Promise<void> {
+    console.log('� Refreshing booking data from CSV files...');
+    await csvDataService.refreshFromCsvFiles();
+    const reservationBookings = await csvDataService.getBookingsFromReservations();
+    this.cachedBookings = reservationBookings;
+    console.log(`� Data refreshed with ${this.cachedBookings.length} records`);
   }
 
   // Load user-specific data on app open
@@ -132,11 +115,13 @@ export class BookingService {
         tableNumber: seatId.charAt(0), // Extract table letter
       };
 
-      // Add to cache and immediately save to CSV database (auto-save)
+      // Add to cache and save to CSV data service
       this.cachedBookings.push(newBooking);
-      await this.saveToCsvDatabase(this.cachedBookings);
+      
+      // Save to CSV data service for persistence
+      await csvDataService.saveBookingAsReservation(newBooking);
 
-      console.log(`✅ New booking created and auto-saved: ${userId} -> ${seatId} (${timeSlot}) on ${bookingDate}`);
+      console.log(`✅ New booking created and saved to CSV: ${userId} -> ${seatId} (${timeSlot}) on ${bookingDate}`);
       return { success: true, booking: newBooking };
     } catch (error) {
       console.error('❌ Error creating booking:', error);
@@ -144,7 +129,8 @@ export class BookingService {
     }
   }
 
-  // Cancel a booking and immediately save to CSV
+
+  // Cancel a booking and update CSV
   async cancelBooking(bookingId: string, userId: string): Promise<{ success: boolean; error?: string }> {
     await this.initializeDatabase();
     
@@ -162,10 +148,10 @@ export class BookingService {
       this.cachedBookings[bookingIndex].modifiedTimestamp = new Date().toISOString();
       this.cachedBookings[bookingIndex].modifiedBy = userId;
 
-      // Immediately save to CSV database (auto-save)
-      await this.saveToCsvDatabase(this.cachedBookings);
+      // Delete from CSV data service
+      await csvDataService.deleteReservation(bookingId);
 
-      console.log(`❌ Booking cancelled and auto-saved: ${bookingId} by ${userId}`);
+      console.log(`❌ Booking cancelled in CSV: ${bookingId} by ${userId}`);
       return { success: true };
     } catch (error) {
       console.error('❌ Error cancelling booking:', error);
@@ -192,31 +178,6 @@ export class BookingService {
     return this.cachedBookings.filter((b: BookingRecord) => b.userId === userId);
   }
 
-  // Import bookings from CSV content and merge with existing database
-  async importBookingsFromCsv(csvContent: string): Promise<{ success: boolean; error?: string; imported?: number }> {
-    await this.initializeDatabase();
-    
-    try {
-      const importedBookings = parseCsvContent(csvContent);
-      
-      // Add imported bookings (avoid duplicates by ID)
-      const existingIds = new Set(this.cachedBookings.map((b: BookingRecord) => b.id));
-      const newBookings = importedBookings.filter((b: BookingRecord) => !existingIds.has(b.id));
-      
-      // Add new bookings to cache
-      this.cachedBookings.push(...newBookings);
-      
-      // Save updated database to CSV
-      await this.saveToCsvDatabase(this.cachedBookings);
-      
-      console.log(`📥 Imported ${newBookings.length} new bookings from CSV`);
-      return { success: true, imported: newBookings.length };
-    } catch (error) {
-      console.error('❌ Error importing bookings:', error);
-      return { success: false, error: 'Failed to import bookings' };
-    }
-  }
-
   // Get booking statistics (from cache)
   async getBookingStats(): Promise<{
     totalBookings: number;
@@ -233,13 +194,6 @@ export class BookingService {
       todayBookings: this.cachedBookings.filter((b: BookingRecord) => b.date === today && b.status === 'ACTIVE').length,
       cancelledBookings: this.cachedBookings.filter((b: BookingRecord) => b.status === 'CANCELLED').length,
     };
-  }
-
-  // Force refresh cache from CSV database
-  async refreshFromDatabase(): Promise<void> {
-    console.log('🔄 Refreshing cache from CSV database...');
-    this.cachedBookings = await this.loadAllBookingsFromCsv();
-    console.log(`🔄 Cache refreshed with ${this.cachedBookings.length} records`);
   }
 
   // Get current cache status (for debugging)

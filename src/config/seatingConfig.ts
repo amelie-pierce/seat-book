@@ -9,10 +9,10 @@ export interface SeatingConfig {
 }
 
 export const SEATING_CONFIG: SeatingConfig = {
-  numberOfTables: 6,         // Total number of tables (A, B, C, D, E, F)
-  seatsPerTable: 6,          // Number of seats per table (1, 2, 3, 4, 5, 6)
-  tablesPerRow: 2,           // Number of tables per row in the layout
-  tableLetters: ['A', 'B', 'C', 'D', 'E', 'F'] // Letters for table identification
+  numberOfTables: 10,         // Total number of tables (A, B, C, D, E, F)
+  seatsPerTable: 8,          // Number of seats per table (1, 2, 3, 4, 5, 6)
+  tablesPerRow: 3,           // Number of tables per row in the layout
+  tableLetters: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'] // Letters for table identification
 };
 
 // Helper function to generate all possible seat IDs

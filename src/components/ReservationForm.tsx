@@ -25,8 +25,6 @@ interface ReservationFormProps {
 }
 
 export default function ReservationForm({
-  // ...existing code...
-
   selectedSeat,
   onSubmit,
   currentUser,

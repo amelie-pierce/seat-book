@@ -1,6 +1,20 @@
 // Booking data management with CSV storage
 // This module handles reading/writing booking data to CSV files
 
+export interface User {
+  user_id: string;
+  email: string;
+}
+
+export interface ReservationRecord {
+  reservation_id: string;
+  user_id: string;
+  table_id: string;
+  date: string;
+  slot_type: 'AM' | 'PM' | 'FULL_DAY';
+  created_at: string;
+}
+
 export interface BookingRecord {
   id: string;                    // Unique booking ID
   userId: string;                // User identifier
@@ -34,6 +48,22 @@ export const CSV_HEADERS = [
   'contactPhone',
   'modifiedTimestamp',
   'modifiedBy'
+] as const;
+
+// Reservation CSV headers (for external data files)
+export const RESERVATION_CSV_HEADERS = [
+  'reservation_id',
+  'user_id',
+  'table_id',
+  'date',
+  'slot_type',
+  'created_at'
+] as const;
+
+// User CSV headers (for external data files)
+export const USER_CSV_HEADERS = [
+  'user_id',
+  'email'
 ] as const;
 
 // Generate unique booking ID
@@ -176,4 +206,104 @@ export const formatDate = (date: Date): string => {
 // Get today's date in YYYY-MM-DD format
 export const getTodayDate = (): string => {
   return formatDate(new Date());
+};
+
+// Convert ReservationRecord to BookingRecord
+export const reservationToBooking = (reservation: ReservationRecord, userEmail?: string): BookingRecord => {
+  // The table_id in CSV can be either seat format (A1, B2) or table format (T01, T02)
+  // If it's table format, we need to convert it back to seat format
+  let seatId = reservation.table_id;
+  let tableNumber = 'A'; // default
+  
+  if (reservation.table_id.startsWith('T')) {
+    // Handle old table format like T01, T02, T03
+    const tableNum = parseInt(reservation.table_id.slice(1));
+    tableNumber = String.fromCharCode(65 + (tableNum - 1)); // T01->A, T02->B, T03->C
+    seatId = `${tableNumber}1`; // Default to seat 1 for table format
+  } else {
+    // Handle seat format like A1, B2
+    tableNumber = reservation.table_id.charAt(0);
+  }
+  
+  return {
+    id: reservation.reservation_id,
+    userId: reservation.user_id,
+    seatId: seatId,
+    date: reservation.date,
+    timeSlot: reservation.slot_type,
+    bookingTimestamp: reservation.created_at,
+    status: 'ACTIVE',
+    userEmail: userEmail,
+    tableNumber: tableNumber,
+  };
+};
+
+// Convert BookingRecord to ReservationRecord
+export const bookingToReservation = (booking: BookingRecord): ReservationRecord => {
+  return {
+    reservation_id: booking.id,
+    user_id: booking.userId,
+    table_id: booking.seatId, // Store seat ID (A1, B2, etc.) in table_id field
+    date: booking.date,
+    slot_type: booking.timeSlot,
+    created_at: booking.bookingTimestamp,
+  };
+};
+
+// Parse CSV content for users
+export const parseUsersCsvContent = (csvContent: string): User[] => {
+  const lines = csvContent.split('\n').filter(line => line.trim());
+  if (lines.length === 0) return [];
+  
+  // Skip header row
+  const dataLines = lines.slice(1);
+  return dataLines.map(line => {
+    const [user_id, email] = line.split(',').map(field => field.trim());
+    return { user_id, email };
+  }).filter(user => user.user_id && user.email);
+};
+
+// Parse CSV content for reservations
+export const parseReservationsCsvContent = (csvContent: string): ReservationRecord[] => {
+  const lines = csvContent.split('\n').filter(line => line.trim());
+  if (lines.length === 0) return [];
+  
+  // Skip header row
+  const dataLines = lines.slice(1);
+  return dataLines.map(line => {
+    const values = parseCsvRow(line);
+    if (values.length < 6) return null;
+    
+    return {
+      reservation_id: values[0] || '',
+      user_id: values[1] || '',
+      table_id: values[2] || '',
+      date: values[3] || '',
+      slot_type: (values[4] as 'AM' | 'PM' | 'FULL_DAY') || 'AM',
+      created_at: values[5] || '',
+    };
+  }).filter((reservation): reservation is ReservationRecord => reservation !== null);
+};
+
+// Create CSV content for users
+export const createUsersCsvContent = (users: User[]): string => {
+  const headerRow = USER_CSV_HEADERS.join(',');
+  const dataRows = users.map(user => `${user.user_id},${user.email}`);
+  return [headerRow, ...dataRows].join('\n');
+};
+
+// Create CSV content for reservations
+export const createReservationsCsvContent = (reservations: ReservationRecord[]): string => {
+  const headerRow = RESERVATION_CSV_HEADERS.join(',');
+  const dataRows = reservations.map(reservation => {
+    return [
+      reservation.reservation_id,
+      reservation.user_id,
+      reservation.table_id,
+      reservation.date,
+      reservation.slot_type,
+      reservation.created_at
+    ].join(',');
+  });
+  return [headerRow, ...dataRows].join('\n');
 };

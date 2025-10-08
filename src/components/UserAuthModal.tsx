@@ -11,6 +11,7 @@ import {
   Alert
 } from '@mui/material';
 import { Person as PersonIcon } from '@mui/icons-material';
+import { csvDataService } from '../services/csvDataService';
 
 interface UserAuthModalProps {
   open: boolean;
@@ -27,8 +28,10 @@ export default function UserAuthModal({
 }: UserAuthModalProps) {
   const [userId, setUserId] = useState('');
   const [error, setError] = useState('');
+  const [isExistingUser, setIsExistingUser] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     
     const trimmedUserId = userId.trim();
@@ -42,22 +45,61 @@ export default function UserAuthModal({
       return;
     }
 
-    // Store user ID in localStorage
-    localStorage.setItem('seatBookingUserId', trimmedUserId);
-    
-    onUserConfirmed(trimmedUserId);
-    handleClose();
+    try {
+      // Check if user exists in CSV data
+      const existingUser = await csvDataService.getUserById(trimmedUserId);
+      
+      if (existingUser) {
+        // User exists, proceed with authentication
+        console.log(`👤 Existing user authenticated: ${existingUser.user_id} (${existingUser.email})`);
+        
+        // Store user ID in localStorage
+        localStorage.setItem('seatBookingUserId', trimmedUserId);
+        
+        onUserConfirmed(trimmedUserId);
+        handleClose();
+      } else {
+        // User does not exist in CSV file
+        setError('User not exists');
+        return;
+      }
+    } catch (error) {
+      console.error('Error during authentication:', error);
+      setError('Authentication failed. Please try again.');
+    }
   };
 
   const handleClose = () => {
     setUserId('');
     setError('');
+    setIsExistingUser(false);
+    setUserEmail('');
     onClose();
   };
 
-  const handleUserIdChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setUserId(event.target.value);
+  const handleUserIdChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newUserId = event.target.value;
+    setUserId(newUserId);
     if (error) setError(''); // Clear error when user starts typing
+    
+    // Check if user exists for display purposes
+    if (newUserId.trim().length >= 3) {
+      try {
+        const existingUser = await csvDataService.getUserById(newUserId.trim());
+        if (existingUser) {
+          setIsExistingUser(true);
+          setUserEmail(existingUser.email);
+        } else {
+          setIsExistingUser(false);
+          setUserEmail('');
+        }
+      } catch (error) {
+        console.error('Error checking user:', error);
+      }
+    } else {
+      setIsExistingUser(false);
+      setUserEmail('');
+    }
   };
 
   return (
@@ -92,7 +134,12 @@ export default function UserAuthModal({
         )}
         
         <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-          Please enter your User ID to continue with the seat reservation system. This will be stored securely for your booking session.
+          Please enter your User ID to access the seat reservation system. Only registered users can make reservations.
+          {isExistingUser && userEmail && (
+            <Box component="span" sx={{ display: 'block', mt: 1, fontWeight: 'medium', color: 'primary.main' }}>
+              Welcome back! ({userEmail})
+            </Box>
+          )}
         </Typography>
 
         <Box component="form" onSubmit={handleSubmit}>
@@ -104,14 +151,13 @@ export default function UserAuthModal({
             value={userId}
             onChange={handleUserIdChange}
             error={!!error}
-            helperText={error || 'Enter a unique identifier (minimum 3 characters)'}
-            placeholder="e.g., john.doe, user123, etc."
+            helperText={error || 'Enter your registered User ID (minimum 3 characters)'}
             sx={{ mb: 2 }}
           />
         </Box>
 
         <Typography variant="caption" color="text.secondary">
-          Your User ID will be saved locally and used for future reservations during this session.
+          Only users registered in the system can access the seat booking service. Contact an administrator if you need access.
         </Typography>
       </DialogContent>
       
