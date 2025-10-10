@@ -26,16 +26,69 @@ import { useEffect } from "react";
 export default function Home() {
   const todayDate = new Date().toISOString().split("T")[0];
 
+  // Function to get the first available (non-disabled) date
+  const getFirstAvailableDate = () => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const currentHour = now.getHours();
+    const currentDay = today.getDay();
+    const dates: Date[] = [];
+    
+    // Check if it's after 3 PM on Friday
+    const isAfterFridayDeadline = currentDay === 5 && currentHour >= 15;
+    
+    if (isAfterFridayDeadline) {
+      // Show next week's working days (Monday to Friday)
+      const nextMonday = new Date(today);
+      const daysUntilNextMonday = (8 - currentDay) % 7;
+      nextMonday.setDate(today.getDate() + daysUntilNextMonday);
+      
+      for (let i = 0; i < 5; i++) {
+        const date = new Date(nextMonday);
+        date.setDate(nextMonday.getDate() + i);
+        dates.push(date);
+      }
+    } else {
+      // Show current week's working days (Monday to Friday)
+      const monday = new Date(today);
+      const daysFromMonday = (currentDay + 6) % 7;
+      monday.setDate(today.getDate() - daysFromMonday);
+      
+      for (let i = 0; i < 5; i++) {
+        const date = new Date(monday);
+        date.setDate(monday.getDate() + i);
+        dates.push(date);
+      }
+    }
+    
+    // Find first non-disabled date
+    for (const date of dates) {
+      const isPastDate = !isAfterFridayDeadline && date < today;
+      if (!isPastDate) {
+        return date.toISOString().split("T")[0];
+      }
+    }
+    
+    // Fallback to today if no valid date found
+    return todayDate;
+  };
+
   const [selectedSeat, setSelectedSeat] = useState<string | null>(null);
   const [reservedSeats, setReservedSeats] = useState<string[]>([]);
   const [pendingSeatId, setPendingSeatId] = useState<string | null>(null);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [userBookings, setUserBookings] = useState<BookingRecord[]>([]);
+  const [bookingsMap, setBookingsMap] = useState<{ [date: string]: { seatId: string; timeSlot: 'AM' | 'PM' | 'FULL_DAY' } }>({});
   const [isLoadingBookings, setIsLoadingBookings] = useState(true);
-  const [selectedDate, setSelectedDate] = useState<string | null>(todayDate);
+  const [selectedDate, setSelectedDate] = useState<string | null>(getFirstAvailableDate());
   const [availableSeatsForDate, setAvailableSeatsForDate] = useState<string[]>(
     []
   );
+  const [allBookingsForDate, setAllBookingsForDate] = useState<Array<{
+    seatId: string;
+    userId: string;
+    timeSlot: 'AM' | 'PM' | 'FULL_DAY';
+  }>>([]);
   const {
     currentUser,
     setUser,
@@ -56,11 +109,21 @@ export default function Home() {
         // Initialize the CSV database
         await bookingService.initializeDatabase();
 
-        // Load reserved seats for today
+        // Load reserved seats and all bookings for today
         const reserved = await bookingService.getReservedSeats();
+        const allBookings = await bookingService.getBookingsForDate(todayDate);
         setReservedSeats(reserved);
+        
+        // Transform bookings to the format expected by Table component
+        const bookedSeatsData = allBookings.map(booking => ({
+          seatId: booking.seatId,
+          userId: booking.userId,
+          timeSlot: booking.timeSlot
+        }));
+        console.log(`📊 Setting bookedSeatsData for ${todayDate}:`, bookedSeatsData);
+        setAllBookingsForDate(bookedSeatsData);
 
-        console.log(`🎯 Loaded ${reserved.length} reserved seats for today`);
+        console.log(`🎯 Loaded ${reserved.length} reserved seats and ${allBookings.length} bookings for today`);
       } catch (error) {
         console.error("❌ Error initializing app:", error);
         
@@ -77,7 +140,7 @@ export default function Home() {
     };
 
     initializeApp();
-  }, []);
+  }, [todayDate]);
 
   // Load user-specific data when user logs in
   useEffect(() => {
@@ -92,10 +155,29 @@ export default function Home() {
           const userData = await bookingService.loadUserData(currentUser);
           setUserBookings(userData.userBookings);
 
-          // Refresh reserved seats for current date
+          // Create a map of bookings by date
+          const bookings = userData.userBookings.reduce((acc, booking) => {
+            acc[booking.date] = {
+              seatId: booking.seatId,
+              timeSlot: booking.timeSlot
+            };
+            return acc;
+          }, {} as { [key: string]: { seatId: string; timeSlot: 'AM' | 'PM' | 'FULL_DAY' } });
+          setBookingsMap(bookings);
+
+          // Refresh reserved seats and all bookings for current date
           if (selectedDate) {
             const reserved = await bookingService.getReservedSeats(selectedDate);
+            const allBookings = await bookingService.getBookingsForDate(selectedDate);
             setReservedSeats(reserved);
+            
+            // Transform bookings to the format expected by Table component
+            const bookedSeatsData = allBookings.map(booking => ({
+              seatId: booking.seatId,
+              userId: booking.userId,
+              timeSlot: booking.timeSlot
+            }));
+            setAllBookingsForDate(bookedSeatsData);
             
             // Update available seats for the current date
             const seats = generateAllSeats(SEATING_CONFIG).filter(
@@ -134,8 +216,36 @@ export default function Home() {
   }, []);
 
   const handleSeatClick = (seatId: string) => {
-    // Use availableSeatsForDate which is properly updated for the selected date
-    if (availableSeatsForDate.includes(seatId)) {
+    // Check seat availability using the new logic
+    const isSeatClickable = () => {
+      // Find all bookings for this seat on the selected date
+      const seatBookings = allBookingsForDate.filter(b => b.seatId === seatId);
+      
+      // If no bookings, seat is available
+      if (seatBookings.length === 0) {
+        return true;
+      }
+      
+      // Check for FULL_DAY bookings - if any exist, seat is not available
+      const hasFullDayBooking = seatBookings.some(booking => booking.timeSlot === 'FULL_DAY');
+      if (hasFullDayBooking) {
+        return false;
+      }
+      
+      // Check if both AM and PM are booked by different users
+      const amBooking = seatBookings.find(booking => booking.timeSlot === 'AM');
+      const pmBooking = seatBookings.find(booking => booking.timeSlot === 'PM');
+      
+      if (amBooking && pmBooking && amBooking.userId !== pmBooking.userId) {
+        // Both AM and PM booked by different users - not available
+        return false;
+      }
+      
+      // If only AM or only PM is booked, or both are booked by same user, seat is still available
+      return true;
+    };
+
+    if (isSeatClickable()) {
       // If user is not authenticated, show auth modal first
       if (!isAuthenticated) {
         setPendingSeatId(seatId);
@@ -205,9 +315,30 @@ export default function Home() {
     }
   };
 
-  const handleReservation = async (date: string) => {
+  const handleReservation = async (date: string, timeSlot: 'AM' | 'PM' | 'FULL_DAY') => {
     if (selectedSeat && currentUser && date) {
       try {
+        setBookingError(null);
+        console.log(
+          `🎫 Creating booking: ${currentUser} -> ${selectedSeat} (${timeSlot}) on ${date}`
+        );
+
+        // Check if the time slot is available
+        const existingBookings = await bookingService.getBookingsForDate(date);
+        const conflictingBooking = existingBookings.find(booking => 
+          booking.seatId === selectedSeat && (
+            timeSlot === 'FULL_DAY' ||
+            booking.timeSlot === 'FULL_DAY' ||
+            booking.timeSlot === timeSlot
+          )
+        );
+
+        if (conflictingBooking) {
+          setBookingError("This time slot is already taken");
+          return;
+        }
+
+        // Proceed with booking creation
         setBookingError(null);
         console.log(
           `🎫 Creating booking: ${currentUser} -> ${selectedSeat} on ${date}`
@@ -216,7 +347,7 @@ export default function Home() {
         const result = await bookingService.createBooking(
           currentUser,
           selectedSeat,
-          'FULL_DAY',
+          timeSlot,
           date
         );
 
@@ -254,17 +385,29 @@ export default function Home() {
     setSelectedDate(dateStr);
     setSelectedSeat(null); // Clear selected seat when changing date
 
-    // Fetch reserved seats for the selected date
+    // Fetch reserved seats and all bookings for the selected date
     try {
       const reserved = await bookingService.getReservedSeats(dateStr);
+      const allBookings = await bookingService.getBookingsForDate(dateStr);
+      
       // Generate available seats for that date
       const seats = generateAllSeats(SEATING_CONFIG).filter(
         (seat) => !reserved.includes(seat)
       );
       setAvailableSeatsForDate(seats);
+      
+      // Transform bookings to the format expected by Table component
+      const bookedSeatsData = allBookings.map(booking => ({
+        seatId: booking.seatId,
+        userId: booking.userId,
+        timeSlot: booking.timeSlot
+      }));
+      console.log(`📊 Setting bookedSeatsData for ${dateStr}:`, bookedSeatsData);
+      setAllBookingsForDate(bookedSeatsData);
     } catch (err) {
       console.error("Error loading seats for date:", err);
       setAvailableSeatsForDate([]);
+      setAllBookingsForDate([]);
       setBookingError("Failed to load seats for selected date");
     }
   }, []);
@@ -292,7 +435,7 @@ export default function Home() {
   }
 
   return (
-    <Container maxWidth="xl" sx={{ height: "100vh", py: 2 }}>
+    <Container maxWidth="lg" sx={{ height: "100vh", py: 2 }}>
       {/* User Session Header */}
       <Box
         sx={{
@@ -344,7 +487,7 @@ export default function Home() {
         {/* Left Section - Seating Layout */}
         <Box
           sx={{
-            flex: { xs: 1, md: "0 0 60%" },
+            flex: { xs: 1, md: "0 0 65%" },
             backgroundColor: "#f8f9fa",
             borderRadius: 2,
             display: "flex",
@@ -362,14 +505,17 @@ export default function Home() {
             seatingConfig={SEATING_CONFIG}
             selectedDate={selectedDate || undefined}
             onDateClick={handleDateClick}
+            bookedSeats={allBookingsForDate}
+            currentUser={currentUser || undefined}
+            timeSlot={bookingsMap[selectedDate || '']?.timeSlot}
           />
         </Box>
 
         {/* Right Section - Reservation Form */}
         <Box
           sx={{
-            flex: { xs: 1, md: "0 0 40%" },
-            p: 4,
+            flex: { xs: 1, md: "0 0 35%" },
+            p: 3,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -383,12 +529,28 @@ export default function Home() {
             onClear={handleClearBooking}
             currentUser={currentUser || undefined}
             isAuthenticated={isAuthenticated}
-              userBookings={userBookings.filter(b => b.status === 'ACTIVE').map(b => ({ date: b.date, seatId: b.seatId }))}
+            userBookings={userBookings.filter(b => b.status === 'ACTIVE').map(b => ({ 
+              date: b.date, 
+              seatId: b.seatId,
+              timeSlot: b.timeSlot
+            }))}
+            allBookingsForDate={allBookingsForDate}
             onBookingChange={async () => {
               if (currentUser) {
-                // Refresh reserved seats for the selected date
-                const reserved = await bookingService.getReservedSeats(selectedDate || todayDate);
+                // Refresh reserved seats and all bookings for the selected date
+                const dateToRefresh = selectedDate || todayDate;
+                const reserved = await bookingService.getReservedSeats(dateToRefresh);
+                const allBookings = await bookingService.getBookingsForDate(dateToRefresh);
                 setReservedSeats(reserved);
+                
+                // Transform bookings to the format expected by Table component
+                const bookedSeatsData = allBookings.map(booking => ({
+                  seatId: booking.seatId,
+                  userId: booking.userId,
+                  timeSlot: booking.timeSlot
+                }));
+                setAllBookingsForDate(bookedSeatsData);
+                
                 // Refresh user bookings
                 const userData = await bookingService.loadUserData(currentUser);
                 setUserBookings(userData.userBookings);

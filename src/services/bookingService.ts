@@ -56,7 +56,10 @@ export class BookingService {
   }> {
     await this.initializeDatabase();
     
-    const userBookings = this.cachedBookings.filter(b => b.userId === userId);
+    const userBookings = this.cachedBookings.filter(b => 
+      b.userId === userId && 
+      b.status === 'ACTIVE'
+    );
     const todayBooking = getUserBookingForDate(this.cachedBookings, userId, getTodayDate());
     
     console.log(`👤 Loaded user data for ${userId}: ${userBookings.length} bookings`);
@@ -92,8 +95,11 @@ export class BookingService {
       const existingBooking = this.cachedBookings.find((b: BookingRecord) => 
         b.seatId === seatId && 
         b.date === bookingDate && 
-        b.status === 'ACTIVE' &&
-        (b.timeSlot === timeSlot || b.timeSlot === 'FULL_DAY' || timeSlot === 'FULL_DAY')
+        b.status === 'ACTIVE' && (
+          timeSlot === 'FULL_DAY' || // If requesting full day, check any existing booking
+          b.timeSlot === 'FULL_DAY' || // If existing booking is full day, conflict with any request
+          b.timeSlot === timeSlot // If requesting same time slot as existing booking
+        )
       );
 
       if (existingBooking) {
@@ -176,6 +182,14 @@ export class BookingService {
   async getUserBookings(userId: string): Promise<BookingRecord[]> {
     await this.initializeDatabase();
     return this.cachedBookings.filter((b: BookingRecord) => b.userId === userId);
+  }
+
+  // Get bookings for a specific date
+  async getBookingsForDate(date: string): Promise<BookingRecord[]> {
+    await this.initializeDatabase();
+    return this.cachedBookings.filter(booking => 
+      booking.date === date && booking.status === 'ACTIVE'
+    );
   }
 
   // Get booking statistics (from cache)
